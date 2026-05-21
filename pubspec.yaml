@@ -1,0 +1,72 @@
+name: movia
+description: Application de transport et de colis pour le Burkina Faso
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.4.9
+  riverpod_annotation: ^2.3.3
+
+  # Navigation
+  go_router: ^13.2.0
+
+  # HTTP
+  dio: ^5.4.1
+
+  # Storage sécurisé (tokens JWT)
+  flutter_secure_storage: ^9.0.0
+
+  # Storage simple (onboarding flag, favoris)
+  shared_preferences: ^2.5.3
+
+  # Modèles
+  freezed_annotation: ^2.4.1
+  json_annotation: ^4.8.1
+
+  # WebSocket (notifications temps réel)
+  web_socket_channel: ^2.4.5
+
+  # Image picker (avatar)
+  image_picker: ^1.0.7
+
+  # Partage
+  share_plus: ^7.2.2
+
+  # URL launcher (tel:, mailto:, whatsapp://)
+  url_launcher: ^6.2.6
+
+  # Internationalisation
+  intl: ^0.19.0
+
+  # Icons Material
+  cupertino_icons: ^1.0.6
+
+  # QR Code
+  qr_flutter: ^4.1.0
+
+  # Shimmer skeleton loading
+  shimmer: ^3.0.0
+
+  # Country picker indicatifs
+  country_picker: ^2.0.21
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  freezed: ^2.4.7
+  json_serializable: ^6.7.1
+  riverpod_generator: ^2.3.9
+  build_runner: ^2.4.8
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
