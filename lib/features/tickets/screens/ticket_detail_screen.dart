@@ -263,7 +263,11 @@ class _QRCard extends StatelessWidget {
             child: Column(
               children: [
                 QrImageView(
-                  data: 'MOVIA:${booking.id}:${booking.from}:${booking.to}:${booking.travelDate}',
+                  // ✅ CORRIGÉ: Le QR encode la bookingReference (pas l'id)
+                  // Le backend GET /bookings/scan?qrCode=MOV-2026-XXXXX attend la référence
+                  data: booking.bookingReference.isNotEmpty
+                      ? booking.bookingReference
+                      : booking.id,
                   version: QrVersions.auto,
                   size: 180,
                   eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: AppColors.textPrimary),
@@ -271,7 +275,9 @@ class _QRCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  booking.id.substring(0, 8).toUpperCase(),
+                  booking.bookingReference.isNotEmpty
+                      ? booking.bookingReference
+                      : booking.id.substring(0, 8).toUpperCase(),
                   style: TextStyle(
                     fontFamily: 'monospace',
                     fontSize: 22,

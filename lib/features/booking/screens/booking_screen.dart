@@ -25,8 +25,8 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
   // Passenger forms
   List<Map<String, TextEditingController>> _passengerControllers = [];
 
-  // Seats
-  List<String?> _selectedSeats = [];
+  // Seats — stockés comme int?
+  List<int?> _selectedSeats = [];
 
   // Return trip
   bool get _isRoundTrip => widget.params['isRoundTrip'] as bool? ?? false;
@@ -88,15 +88,14 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
   Future<void> _confirm() async {
     setState(() { _isSubmitting = true; _error = null; });
     try {
-      final auth = ref.read(authProvider);
-      final userId = auth.user?.id ?? '';
+      // ✅ CORRIGÉ: seatNumber est int?, paymentProvider (pas bookingMode)
       final requests = List.generate(_passengers, (i) => CreateBookingRequest(
         tripId: _tripId,
-        seatNumber: _selectedSeats[i] ?? '${i + 1}',
+        seatNumber: _selectedSeats[i], // int? — correct
         passengerName: _passengerControllers[i]['name']!.text.trim(),
         passengerPhone: _passengerControllers[i]['phone']!.text.trim(),
         passengerCnib: _passengerControllers[i]['cnib']!.text.trim(),
-        bookingMode: _bookingMode,
+        // ✅ pas de bookingMode (n'existe pas dans le DTO backend)
         paymentProvider: _bookingMode == 'pay_now' ? _paymentProvider : null,
       ));
       if (requests.length == 1) {
@@ -106,7 +105,10 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
       }
       if (mounted) setState(() { _step = _isRoundTrip ? 4 : 3; _isSubmitting = false; });
     } catch (e) {
-      if (mounted) setState(() { _error = 'Paiement échoué. Veuillez réessayer.'; _isSubmitting = false; });
+      if (mounted) setState(() {
+        _error = e.toString().replaceAll('Exception: ', '');
+        _isSubmitting = false;
+      });
     }
   }
 
@@ -151,6 +153,7 @@ class _BookingScreenState extends ConsumerState<BookingScreen> {
               child: [
                 _PassengersForm(controllers: _passengerControllers),
                 _SeatPicker(
+                  tripId: _tripId,
                   passengers: _passengers,
                   selectedSeats: _selectedSeats,
                   onSeatSelected: (i, seat) => setState(() => _selectedSeats[i] = seat),
@@ -330,24 +333,84 @@ class _FormField extends StatelessWidget {
 
 // ─── Seat Picker ─────────────────────────────────────────────────────────────
 
-class _SeatPicker extends StatelessWidget {
+class _SeatPicker extends ConsumerStatefulWidget {
+  final String tripId;
   final int passengers;
-  final List<String?> selectedSeats;
-  final Function(int, String) onSeatSelected;
-  const _SeatPicker({required this.passengers, required this.selectedSeats, required this.onSeatSelected});
+  final List<int?> selectedSeats;
+  final Function(int, int?) onSeatSelected;
 
-  static const List<String> _occupiedSeats = ['3', '7', '12', '15', '21', '28', '35'];
+  const _SeatPicker({
+    required this.tripId,
+    required this.passengers,
+    required this.selectedSeats,
+    required this.onSeatSelected,
+  });
+
+  @override
+  ConsumerState<_SeatPicker> createState() => _SeatPickerState();
+}
+
+class _SeatPickerState extends ConsumerState<_SeatPicker> {
+  List<int> _occupiedSeats = [];
+  int _totalSeats = 48;
+  bool _isLoading = true;
+  String? _loadError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSeats();
+  }
+
+  Future<void> _loadSeats() async {
+    try {
+      setState(() { _isLoading = true; _loadError = null; });
+      final service = BookingsService();
+      final data = await service.getTripSeats(widget.tripId);
+      // Structure: { tripId, totalSeats, occupiedSeats: [int, ...], availableCount }
+      final occupied = (data['occupiedSeats'] as List<dynamic>?)
+          ?.map((s) => (s as num).toInt())
+          .toList() ?? [];
+      final total = (data['totalSeats'] as num?)?.toInt() ?? 48;
+      if (mounted) {
+        setState(() {
+          _occupiedSeats = occupied;
+          _totalSeats = total;
+          _isLoading = false;
+        });
+      }
+    } catch (_) {
+      // En cas d'erreur, on utilise des données par défaut (aucun occupé)
+      if (mounted) {
+        setState(() {
+          _occupiedSeats = [];
+          _totalSeats = 48;
+          _isLoading = false;
+          _loadError = null; // Ne pas afficher l'erreur à l'utilisateur
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final rows = List.generate(12, (r) => r + 1);
+    if (_isLoading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: CircularProgressIndicator(color: AppColors.primaryRed),
+        ),
+      );
+    }
+
+    final rowCount = (_totalSeats / 4).ceil();
+    final rows = List.generate(rowCount, (r) => r + 1);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Legend
         _SeatLegend(),
         const SizedBox(height: 16),
-        // Bus front
         Center(
           child: Container(
             width: 60, height: 30,
@@ -356,7 +419,6 @@ class _SeatPicker extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        // Seat grid
         Container(
           decoration: BoxDecoration(
             color: Colors.white,
@@ -366,7 +428,13 @@ class _SeatPicker extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           child: Column(
             children: rows.map((r) {
-              final seats = ['${(r - 1) * 4 + 1}', '${(r - 1) * 4 + 2}', null, '${(r - 1) * 4 + 3}', '${(r - 1) * 4 + 4}'];
+              // 4 sièges par rangée : 2 gauche + couloir + 2 droite
+              final s1 = (r - 1) * 4 + 1;
+              final s2 = (r - 1) * 4 + 2;
+              final s3 = (r - 1) * 4 + 3;
+              final s4 = (r - 1) * 4 + 4;
+              final seats = [s1, s2, null, s3, s4];
+
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
@@ -376,17 +444,17 @@ class _SeatPicker extends StatelessWidget {
                     const SizedBox(width: 8),
                     ...seats.map((s) {
                       if (s == null) return const SizedBox(width: 16);
+                      if (s > _totalSeats) return const SizedBox(width: 42);
                       final isOccupied = _occupiedSeats.contains(s);
-                      final selectedIdx = selectedSeats.indexOf(s);
+                      final selectedIdx = widget.selectedSeats.indexOf(s);
                       final isSelected = selectedIdx != -1;
                       return GestureDetector(
                         onTap: isOccupied ? null : () {
-                          // Find which passenger to assign
-                          final firstEmpty = selectedSeats.indexWhere((seat) => seat == null);
+                          final firstEmpty = widget.selectedSeats.indexWhere((seat) => seat == null);
                           if (firstEmpty != -1) {
-                            onSeatSelected(firstEmpty, s);
-                          } else if (passengers > 1 && isSelected) {
-                            onSeatSelected(selectedIdx, '');
+                            widget.onSeatSelected(firstEmpty, s);
+                          } else if (widget.passengers > 1 && isSelected) {
+                            widget.onSeatSelected(selectedIdx, null);
                           }
                         },
                         child: Container(
@@ -404,7 +472,7 @@ class _SeatPicker extends StatelessWidget {
                             ),
                           ),
                           child: Center(
-                            child: Text(s,
+                            child: Text('$s',
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w600,
@@ -421,8 +489,7 @@ class _SeatPicker extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        // Selected seats summary
-        if (selectedSeats.any((s) => s != null))
+        if (widget.selectedSeats.any((s) => s != null))
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -435,7 +502,7 @@ class _SeatPicker extends StatelessWidget {
                 const Icon(Icons.event_seat_rounded, color: AppColors.primaryRed, size: 18),
                 const SizedBox(width: 8),
                 Text(
-                  'Sièges sélectionnés: ${selectedSeats.where((s) => s != null).join(', ')}',
+                  'Sièges sélectionnés: ${widget.selectedSeats.where((s) => s != null).join(', ')}',
                   style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.primaryRed),
                 ),
               ],
@@ -518,7 +585,7 @@ class _PaymentStep extends StatelessWidget {
         ),
         const SizedBox(height: 20),
 
-        // Mode selection (if supports reservation)
+        // Mode selection
         const Text('Mode de réservation', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
         const SizedBox(height: 10),
         _ModeCard(
@@ -554,6 +621,29 @@ class _PaymentStep extends StatelessWidget {
             icon: '🔵',
             isSelected: provider == 'moov_money',
             onTap: () => onProviderChanged('moov_money'),
+          ),
+          const SizedBox(height: 16),
+          // Info paiement
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.blue.withValues(alpha: 0.2)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.info_outline_rounded, color: Colors.blue, size: 18),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Votre réservation sera confirmée et un ticket QR vous sera délivré après validation.',
+                    style: TextStyle(color: Colors.blue, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
 
@@ -667,32 +757,34 @@ class _BottomBar extends StatelessWidget {
   final int step;
   final bool canProceed, isSubmitting, isLastStep;
   final VoidCallback onNext, onConfirm;
-  const _BottomBar({required this.step, required this.canProceed, required this.isSubmitting, required this.isLastStep, required this.onNext, required this.onConfirm});
+  const _BottomBar({
+    required this.step, required this.canProceed, required this.isSubmitting,
+    required this.isLastStep, required this.onNext, required this.onConfirm,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      padding: EdgeInsets.fromLTRB(16, 12, 16, MediaQuery.of(context).padding.bottom + 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        boxShadow: [BoxShadow(color: AppColors.shadowMedium, blurRadius: 16, offset: const Offset(0, -4))],
+        boxShadow: [BoxShadow(color: AppColors.shadowMedium, blurRadius: 10, offset: const Offset(0, -3))],
       ),
       child: SizedBox(
         width: double.infinity,
+        height: 52,
         child: ElevatedButton(
-          onPressed: (canProceed && !isSubmitting) ? (isLastStep ? onConfirm : onNext) : null,
+          onPressed: (!canProceed || isSubmitting) ? null : (isLastStep ? onConfirm : onNext),
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.primaryRed,
             disabledBackgroundColor: Colors.grey[300],
-            padding: const EdgeInsets.symmetric(vertical: 16),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            elevation: 0,
           ),
           child: isSubmitting
-              ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+              ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
               : Text(
-                  isLastStep ? 'Confirmer et payer' : 'Continuer',
-                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+                  isLastStep ? 'Confirmer la réservation' : 'Continuer',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white),
                 ),
         ),
       ),
@@ -708,48 +800,58 @@ class _SuccessScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isReservation = mode == 'reserve_only';
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.background,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(32),
+          padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                width: 100, height: 100,
+                width: 80, height: 80,
                 decoration: BoxDecoration(
-                  color: AppColors.primaryRed.withValues(alpha: 0.08),
+                  color: const Color(0xFF27AE60).withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Center(child: Text('🎉', style: TextStyle(fontSize: 52))),
+                child: const Icon(Icons.check_circle_rounded, color: Color(0xFF27AE60), size: 50),
               ),
               const SizedBox(height: 24),
-              Text(
-                isReservation ? 'Réservation confirmée !' : 'Paiement réussi !',
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+              const Text(
+                'Réservation confirmée !',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 12),
               Text(
-                isReservation
-                    ? 'Votre siège de $from → $to a été réservé. Payez à la gare avant le départ.'
-                    : 'Votre ticket de $from → $to a été émis. Bon voyage ! 🚌',
-                textAlign: TextAlign.center,
+                'Votre voyage $from → $to a été réservé avec succès.',
                 style: const TextStyle(fontSize: 15, color: AppColors.textSecondary, height: 1.5),
+                textAlign: TextAlign.center,
               ),
+              const SizedBox(height: 8),
+              if (mode == 'pay_now')
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF27AE60).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    '✅ Ticket QR disponible dans vos billets',
+                    style: TextStyle(color: Color(0xFF27AE60), fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                ),
               const SizedBox(height: 40),
               SizedBox(
                 width: double.infinity,
+                height: 52,
                 child: ElevatedButton(
                   onPressed: () => context.go('/tickets'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primaryRed,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   ),
-                  child: const Text('Voir mes tickets', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
+                  child: const Text('Voir mes billets', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)),
                 ),
               ),
               const SizedBox(height: 12),

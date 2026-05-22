@@ -1,3 +1,5 @@
+import '../shared/constants/app_data.dart';
+
 class TripResult {
   final String id;
   final String companyId;
@@ -43,28 +45,42 @@ class TripResult {
     this.groupStations,
   });
 
-  factory TripResult.fromJson(Map<String, dynamic> json) => TripResult(
-        id: json['id']?.toString() ?? '',
-        companyId: json['companyId']?.toString() ?? json['company_id']?.toString() ?? '',
-        companyName: json['companyName']?.toString() ?? json['company_name']?.toString() ?? '',
-        companyShortName: json['companyShortName']?.toString() ?? json['company_short_name']?.toString() ?? '',
-        from: json['from']?.toString() ?? '',
-        to: json['to']?.toString() ?? '',
-        fromStation: json['fromStation']?.toString() ?? json['from_station']?.toString() ?? '',
-        toStation: json['toStation']?.toString() ?? json['to_station']?.toString() ?? '',
-        departureTime: json['departureTime']?.toString() ?? json['departure_time']?.toString() ?? '',
-        arrivalTime: json['arrivalTime']?.toString() ?? json['arrival_time']?.toString() ?? '',
-        duration: json['duration']?.toString() ?? '',
-        price: (json['price'] as num?)?.toDouble() ?? 0,
-        seatsAvailable: (json['seatsAvailable'] ?? json['seats_available'] ?? 0) as int,
-        totalSeats: (json['totalSeats'] ?? json['total_seats'] ?? 0) as int,
-        date: json['date']?.toString() ?? '',
-        supportsReservation: json['supportsReservation'] != false && json['supports_reservation'] != false,
-        requiresImmediatePayment: json['requiresImmediatePayment'] == true || json['requires_immediate_payment'] == true,
-        priceLabel: json['priceLabel']?.toString() ?? json['price_label']?.toString(),
-        demandLevel: json['demandLevel']?.toString() ?? json['demand_level']?.toString(),
-        groupStations: (json['groupStations'] as List<dynamic>?)?.map((s) => s.toString()).toList(),
-      );
+  factory TripResult.fromJson(Map<String, dynamic> json) {
+    final companyId = json['companyId']?.toString() ?? json['company_id']?.toString() ?? '';
+
+    // ✅ CORRIGÉ: Le backend /trips/search ne retourne PAS companyName ni companyShortName
+    // On les dérive depuis companyId via les données locales app_data.dart
+    final companyName = json['companyName']?.toString() ??
+        json['company_name']?.toString() ??
+        getCompanyFullName(companyId); // Fallback local
+
+    final companyShortName = json['companyShortName']?.toString() ??
+        json['company_short_name']?.toString() ??
+        getCompanyShortName(companyId); // Fallback local
+
+    return TripResult(
+      id: json['id']?.toString() ?? '',
+      companyId: companyId,
+      companyName: companyName,
+      companyShortName: companyShortName,
+      from: json['from']?.toString() ?? '',
+      to: json['to']?.toString() ?? '',
+      fromStation: json['fromStation']?.toString() ?? json['from_station']?.toString() ?? '',
+      toStation: json['toStation']?.toString() ?? json['to_station']?.toString() ?? '',
+      departureTime: json['departureTime']?.toString() ?? json['departure_time']?.toString() ?? '',
+      arrivalTime: json['arrivalTime']?.toString() ?? json['arrival_time']?.toString() ?? '',
+      duration: json['duration']?.toString() ?? '',
+      price: (json['price'] as num?)?.toDouble() ?? 0,
+      seatsAvailable: (json['seatsAvailable'] ?? json['seats_available'] ?? 0) as int,
+      totalSeats: (json['totalSeats'] ?? json['total_seats'] ?? 0) as int,
+      date: json['date']?.toString() ?? '',
+      supportsReservation: json['supportsReservation'] != false && json['supports_reservation'] != false,
+      requiresImmediatePayment: json['requiresImmediatePayment'] == true || json['requires_immediate_payment'] == true,
+      priceLabel: json['priceLabel']?.toString() ?? json['price_label']?.toString(),
+      demandLevel: json['demandLevel']?.toString() ?? json['demand_level']?.toString(),
+      groupStations: (json['groupStations'] as List<dynamic>?)?.map((s) => s.toString()).toList(),
+    );
+  }
 }
 
 class SeatInfo {
